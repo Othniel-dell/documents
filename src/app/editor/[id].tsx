@@ -5,11 +5,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Print from 'expo-print';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   type GestureResponderEvent,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,11 +23,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
+import { DocActionModal } from '@/components/DocActionModal';
 import { SignatureModal } from '@/components/SignatureModal';
 import { Colors } from '@/constants/theme';
 import { useDocuments } from '@/context/DocumentContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { AnnotationItem } from '@/types/document';
+import { goBackOrHome } from '@/utils/navigation';
 
 let annIdSeq = 100;
 const nextAnnId = () => `ann-${++annIdSeq}`;
@@ -44,15 +49,26 @@ export default function DocumentEditorScreen() {
 
   const doc = getDocumentById(id);
 
-  const [isEditingText, setIsEditingText] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [bold, setBold] = useState(false);
   const [underline, setUnderline] = useState(false);
-  const [fontSize, setFontSize] = useState(13);
+  const [fontSize, setFontSize] = useState(14);
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
   const [signatureModalOpen, setSignatureModalOpen] = useState(tool === 'sign');
+  const [docActionsOpen, setDocActionsOpen] = useState(false);
   const [liveDrawPath, setLiveDrawPath] = useState('');
   const liveDrawRef = useRef('');
+  const bodyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const handleDrawStart = (evt: GestureResponderEvent) => {
     const { locationX, locationY } = evt.nativeEvent;
@@ -88,7 +104,7 @@ export default function DocumentEditorScreen() {
     return (
       <SafeAreaView style={[styles.missingRoot, { backgroundColor: theme.background }]}>
         <Text style={[styles.missingTitle, { color: theme.text }]}>Document not found</Text>
-        <Pressable onPress={() => router.back()} style={styles.backPill}>
+        <Pressable onPress={goBackOrHome} style={styles.backPill}>
           <Text style={styles.backPillText}>Go Back</Text>
         </Pressable>
       </SafeAreaView>
@@ -180,15 +196,17 @@ export default function DocumentEditorScreen() {
   };
 
   const handleMore = () => {
-    Alert.alert(doc.title, 'More Actions', [
-      { text: 'Export & Share PDF', onPress: handleExportPdf },
-      { text: 'Summarize with AI', onPress: () => router.push(`/ai-chat?docId=${doc.id}`) },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setDocActionsOpen(true);
   };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <DocActionModal
+        doc={docActionsOpen ? doc : null}
+        onClose={() => setDocActionsOpen(false)}
+        onDeleted={goBackOrHome}
+        hideOpenAction
+      />
       <SignatureModal
         visible={signatureModalOpen}
         onClose={() => setSignatureModalOpen(false)}
@@ -203,19 +221,21 @@ export default function DocumentEditorScreen() {
         <SafeAreaView edges={['top']}>
           <View style={styles.headerRow}>
             <Pressable
-              onPress={() => router.back()}
+              onPress={goBackOrHome}
               style={[styles.circleBtn, { backgroundColor: theme.backgroundElement }]}>
               <Ionicons name="close" size={20} color={theme.text} />
             </Pressable>
 
-            <View style={styles.headerTitleCol}>
+            <Pressable
+              onPress={() => setDocActionsOpen(true)}
+              style={styles.headerTitleCol}>
               <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                 Edit Document
               </Text>
               <Text style={[styles.headerSub, { color: theme.textSecondary }]} numberOfLines={1}>
-                {doc.title}
+                {doc.title} ✎
               </Text>
-            </View>
+            </Pressable>
 
             <Pressable
               onPress={handleExportPdf}
@@ -226,9 +246,13 @@ export default function DocumentEditorScreen() {
         </SafeAreaView>
       </LinearGradient>
 
-      {/* Document Canvas */}
+      {/* Document Canvas + Bottom Toolbar wrapped in KeyboardAvoidingView */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
         contentContainerStyle={styles.canvasScroll}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
         <View
           style={styles.paperCard}
@@ -245,56 +269,41 @@ export default function DocumentEditorScreen() {
             />
           )}
 
-          {isEditingText ? (
-            <View style={styles.editableBlock}>
-              <TextInput
-                value={primaryPage?.contentTitle ?? ''}
-                onChangeText={(val) =>
-                  updateDocument(doc.id, {
-                    pages: [{ ...primaryPage, contentTitle: val }],
-                  })
-                }
-                style={styles.paperTitleInput}
-                placeholder="Document Title"
-              />
-              <TextInput
-                value={primaryPage?.contentBody ?? ''}
-                onChangeText={(val) =>
-                  updateDocument(doc.id, {
-                    pages: [{ ...primaryPage, contentBody: val }],
-                  })
-                }
-                multiline
-                style={[
-                  styles.paperBodyInput,
-                  {
-                    fontSize,
-                    fontWeight: bold ? '700' : '400',
-                    textDecorationLine: underline ? 'underline' : 'none',
-                  },
-                ]}
-              />
-            </View>
-          ) : (
-            <View>
-              {primaryPage?.contentTitle ? (
-                <Text style={styles.paperTitle}>{primaryPage.contentTitle}</Text>
-              ) : null}
-              {primaryPage?.contentBody ? (
-                <Text
-                  style={[
-                    styles.paperBody,
-                    {
-                      fontSize,
-                      fontWeight: bold ? '700' : '400',
-                      textDecorationLine: underline ? 'underline' : 'none',
-                    },
-                  ]}>
-                  {primaryPage.contentBody}
-                </Text>
-              ) : null}
-            </View>
-          )}
+          <View style={styles.editableBlock}>
+            <TextInput
+              editable={!drawMode}
+              value={primaryPage?.contentTitle ?? ''}
+              onChangeText={(val) =>
+                updateDocument(doc.id, {
+                  pages: [{ ...primaryPage, contentTitle: val }],
+                })
+              }
+              style={styles.paperTitleInput}
+              placeholder="Document Title"
+              placeholderTextColor="#94A3B8"
+            />
+            <TextInput
+              ref={bodyInputRef}
+              editable={!drawMode}
+              value={primaryPage?.contentBody ?? ''}
+              onChangeText={(val) =>
+                updateDocument(doc.id, {
+                  pages: [{ ...primaryPage, contentBody: val }],
+                })
+              }
+              multiline
+              placeholder="Tap here to start typing..."
+              placeholderTextColor="#94A3B8"
+              style={[
+                styles.paperBodyInput,
+                {
+                  fontSize,
+                  fontWeight: bold ? '700' : '400',
+                  textDecorationLine: underline ? 'underline' : 'none',
+                },
+              ]}
+            />
+          </View>
 
           {/* Freehand Drawing Overlay */}
           <Svg pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -490,19 +499,26 @@ export default function DocumentEditorScreen() {
         {/* Bottom Formatting Strip */}
         <View style={[styles.formatRow, { borderTopColor: theme.border }]}>
           <Pressable
-            onPress={() => setIsEditingText((v) => !v)}
+            onPress={() => {
+              if (keyboardOpen) {
+                Keyboard.dismiss();
+              } else {
+                setDrawMode(false);
+                bodyInputRef.current?.focus();
+              }
+            }}
             style={styles.formatItem}>
             <Ionicons
               name="keypad-outline"
               size={18}
-              color={isEditingText ? theme.navy : theme.textSecondary}
+              color={keyboardOpen ? theme.navy : theme.textSecondary}
             />
             <Text
               style={[
                 styles.formatLabel,
-                { color: isEditingText ? theme.navy : theme.textSecondary },
+                { color: keyboardOpen ? theme.navy : theme.textSecondary },
               ]}>
-              Keyboard
+              {keyboardOpen ? 'Hide Keys' : 'Keyboard'}
             </Text>
           </Pressable>
 
@@ -559,6 +575,7 @@ export default function DocumentEditorScreen() {
           </Pressable>
         </View>
       </SafeAreaView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

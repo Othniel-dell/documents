@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DocBadge } from '@/components/DocBadge';
@@ -47,11 +47,15 @@ export function OnboardingModal({ visible, onDismiss }: OnboardingModalProps) {
             </View>
 
             <View style={styles.centerCard}>
-              <View style={styles.centerIconCircle}>
-                <Ionicons name="document-text" size={44} color="#16325B" />
-              </View>
-              <Text style={styles.centerCardTitle}>CamDocs & WPS</Text>
-              <Text style={styles.centerCardSub}>Scan • Edit • Sign • AI Summary</Text>
+              <Image
+                source={require('@/assets/images/docusmart-logo.png')}
+                style={styles.logoBanner}
+                resizeMode="contain"
+              />
+              <Text style={styles.centerCardTitle}>
+                DocuSmart <Text style={{ color: '#4F46E5' }}>AI</Text>
+              </Text>
+              <Text style={styles.centerCardSub}>Scan • Convert • Summarize • More</Text>
               <View style={styles.featurePills}>
                 <View style={styles.pill}>
                   <Ionicons name="scan-outline" size={14} color="#16325B" />
@@ -173,14 +177,10 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 8,
   },
-  centerIconCircle: {
-    width: 78,
-    height: 78,
-    borderRadius: 24,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
+  logoBanner: {
+    width: 170,
+    height: 90,
+    marginBottom: 8,
   },
   centerCardTitle: {
     fontSize: 19,

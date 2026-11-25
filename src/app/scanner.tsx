@@ -17,6 +17,7 @@ import Svg, { Circle, Polygon } from 'react-native-svg';
 
 import { useDocuments } from '@/context/DocumentContext';
 import type { ScanFilter, ScanMode } from '@/types/document';
+import { goBackOrHome } from '@/utils/navigation';
 
 const SCAN_MODES: ScanMode[] = ['Whiteboard', 'Form', 'Document', 'Business Card', 'ID Card'];
 const FILTERS: { key: ScanFilter; label: string }[] = [
@@ -170,7 +171,7 @@ export default function ScannerScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Top Bar (Image 1) */}
       <View style={styles.topBar}>
-        <Pressable onPress={() => router.back()} style={styles.topIconBtn}>
+        <Pressable onPress={goBackOrHome} style={styles.topIconBtn}>
           <Ionicons name="home" size={20} color="#FFFFFF" />
         </Pressable>
         <View style={styles.modeBadge}>

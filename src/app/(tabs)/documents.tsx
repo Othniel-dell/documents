@@ -4,7 +4,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { type Href, router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DocActionModal } from '@/components/DocActionModal';
 import { DocBadge } from '@/components/DocBadge';
 import { Colors } from '@/constants/theme';
 import { guessDocTypeFromName, useDocuments } from '@/context/DocumentContext';
@@ -32,12 +32,12 @@ const FILTERS: { key: 'all' | DocType; label: string }[] = [
 export default function DocumentsScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const theme = Colors[scheme];
-  const { documents, addDocument, deleteDocument, duplicateDocument, updateDocument } =
-    useDocuments();
+  const { documents, addDocument } = useDocuments();
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | DocType>('all');
   const [signedOnly, setSignedOnly] = useState(false);
+  const [actionDoc, setActionDoc] = useState<DocumentItem | null>(null);
 
   const filtered = useMemo(() => {
     return documents.filter((doc) => {
@@ -76,22 +76,12 @@ export default function DocumentsScreen() {
   };
 
   const handleDocOptions = (doc: DocumentItem) => {
-    Alert.alert(doc.title, 'Document Options', [
-      { text: 'Open & Edit', onPress: () => router.push(`/editor/${doc.id}` as Href) },
-      { text: 'Sign Document', onPress: () => router.push(`/editor/${doc.id}?tool=sign` as Href) },
-      { text: 'Chat with AI', onPress: () => router.push(`/ai-chat?docId=${doc.id}`) },
-      {
-        text: doc.isStarred ? 'Remove Star' : 'Star Document',
-        onPress: () => updateDocument(doc.id, { isStarred: !doc.isStarred }),
-      },
-      { text: 'Duplicate', onPress: () => duplicateDocument(doc.id) },
-      { text: 'Delete', style: 'destructive', onPress: () => deleteDocument(doc.id) },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setActionDoc(doc);
   };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <DocActionModal doc={actionDoc} onClose={() => setActionDoc(null)} />
       <LinearGradient
         colors={[theme.aquaTop, theme.aquaMid, theme.background]}
         locations={[0, 0.65, 1]}

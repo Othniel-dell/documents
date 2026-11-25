@@ -1,4 +1,5 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import Head from 'expo-router/head';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,6 +19,9 @@ function AppShell() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <Head>
+        <title>DocuSmart AI — Scan • Convert • Summarize</title>
+      </Head>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen

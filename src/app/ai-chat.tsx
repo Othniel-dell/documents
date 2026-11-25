@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,6 +18,7 @@ import { Colors } from '@/constants/theme';
 import { useDocuments } from '@/context/DocumentContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { DocumentItem } from '@/types/document';
+import { goBackOrHome } from '@/utils/navigation';
 
 interface ChatMessage {
   id: string;
@@ -26,9 +27,6 @@ interface ChatMessage {
   text: string;
   suggestions?: string[];
 }
-
-let chatIdSeq = 10;
-const nextChatId = (prefix: string) => `${prefix}-${++chatIdSeq}`;
 
 function extractDocumentText(doc: DocumentItem | undefined): string {
   if (!doc) return '';
@@ -189,7 +187,7 @@ export default function AiChatScreen() {
   const { docId } = useLocalSearchParams<{ docId?: string }>();
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const theme = Colors[scheme];
-  const { documents, getDocumentById } = useDocuments();
+  const { documents, getDocumentById, updateDocument } = useDocuments();
 
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>(docId);
   const targetDoc = useMemo(
@@ -200,6 +198,7 @@ export default function AiChatScreen() {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const idSeqRef = useRef(10);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const initial = buildAgentReply('Summarize the current document', targetDoc, documents);
@@ -223,8 +222,9 @@ export default function AiChatScreen() {
     const query = (promptText ?? input).trim();
     if (!query || isThinking) return;
 
+    idSeqRef.current += 1;
     const userMsg: ChatMessage = {
-      id: nextChatId('u'),
+      id: `u-${idSeqRef.current}`,
       role: 'user',
       text: query,
     };
@@ -235,8 +235,9 @@ export default function AiChatScreen() {
 
     setTimeout(() => {
       const reply = buildAgentReply(query, targetDoc, documents);
+      idSeqRef.current += 1;
       const aiMsg: ChatMessage = {
-        id: nextChatId('a'),
+        id: `a-${idSeqRef.current}`,
         role: 'ai',
         title: reply.title,
         text: reply.text,
@@ -261,7 +262,7 @@ export default function AiChatScreen() {
       edges={['top', 'bottom']}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <Pressable onPress={() => router.back()} style={styles.closeBtn}>
+        <Pressable onPress={goBackOrHome} style={styles.closeBtn}>
           <Ionicons name="close" size={22} color={theme.text} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -282,6 +283,7 @@ export default function AiChatScreen() {
       {documents.length > 1 && (
         <ScrollView
           horizontal
+          style={styles.horizontalScrollFixed}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={[styles.docStrip, { borderBottomColor: theme.border }]}>
           {documents.map((d) => {
@@ -313,16 +315,19 @@ export default function AiChatScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           ref={scrollRef}
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
           contentContainerStyle={styles.chatScroll}
           showsVerticalScrollIndicator={false}>
-          {messages.map((msg) => {
+          {messages.map((msg, idx) => {
+            const msgKey = `${msg.id}-${idx}`;
             if (msg.role === 'user') {
               return (
-                <View key={msg.id} style={styles.userBubble}>
+                <View key={msgKey} style={styles.userBubble}>
                   <Text style={styles.userBubbleText}>{msg.text}</Text>
                 </View>
               );
@@ -330,12 +335,34 @@ export default function AiChatScreen() {
 
             return (
               <View
-                key={msg.id}
+                key={msgKey}
                 style={[
                   styles.aiCard,
                   { backgroundColor: theme.backgroundElement, borderColor: theme.border },
                 ]}>
-                {msg.title && <Text style={styles.aiCardTitle}>{msg.title}</Text>}
+                <View style={styles.aiCardHeader}>
+                  <View style={styles.aiBadge}>
+                    <Ionicons name="sparkles" size={13} color="#FFFFFF" />
+                  </View>
+                  <Text style={styles.aiCardTitle}>{msg.title ?? 'CamDocs AI'}</Text>
+                  {targetDoc && (
+                    <Pressable
+                      onPress={() => {
+                        const page = targetDoc.pages[0];
+                        const nextBody = [page?.contentBody, msg.text]
+                          .filter(Boolean)
+                          .join('\n\n');
+                        updateDocument(targetDoc.id, {
+                          pages: [{ ...page, id: page?.id ?? 'p-1', contentBody: nextBody }],
+                        });
+                        goBackOrHome();
+                      }}
+                      style={styles.insertBtn}>
+                      <Ionicons name="add-circle-outline" size={13} color="#2563EB" />
+                      <Text style={styles.insertBtnText}>Insert</Text>
+                    </Pressable>
+                  )}
+                </View>
                 <Text style={[styles.aiCardBody, { color: theme.text }]}>{msg.text}</Text>
 
                 {msg.suggestions && (
@@ -378,22 +405,25 @@ export default function AiChatScreen() {
         </ScrollView>
 
         {/* Quick Prompt Chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.quickRow}>
-          {quickPrompts.map((p) => (
-            <Pressable
-              key={p}
-              onPress={() => handleSend(p)}
-              style={[
-                styles.quickChip,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-              ]}>
-              <Text style={[styles.quickChipText, { color: theme.text }]}>{p}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        <View style={styles.quickRowWrapper}>
+          <ScrollView
+            horizontal
+            style={styles.horizontalScrollFixed}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quickRow}>
+            {quickPrompts.map((p) => (
+              <Pressable
+                key={p}
+                onPress={() => handleSend(p)}
+                style={[
+                  styles.quickChip,
+                  { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                ]}>
+                <Text style={[styles.quickChipText, { color: theme.text }]}>{p}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
 
         <View
           style={[
@@ -487,15 +517,48 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   aiCard: {
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     padding: 16,
     gap: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  aiCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: '#4F46E5',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   aiCardTitle: {
-    fontSize: 15.5,
+    flex: 1,
+    fontSize: 15,
     fontWeight: '800',
     color: '#6366F1',
+  },
+  insertBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  insertBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#2563EB',
   },
   aiCardBody: {
     fontSize: 14,
@@ -535,16 +598,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  horizontalScrollFixed: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  quickRowWrapper: {
+    flexShrink: 0,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
   quickRow: {
     paddingHorizontal: 14,
-    paddingBottom: 8,
+    alignItems: 'center',
     gap: 8,
   },
   quickChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    height: 32,
+    paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   quickChipText: {
     fontSize: 12,

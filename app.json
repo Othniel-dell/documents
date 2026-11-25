@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "documents",
+    "name": "DocuSmart AI",
     "slug": "documents",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/docusmart-logo.png",
     "scheme": "documents",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -21,7 +21,7 @@
     },
     "web": {
       "output": "server",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/docusmart-logo.png"
     },
     "plugins": [
       "expo-router",

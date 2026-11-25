@@ -1,5 +1,4 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +6,7 @@ import { type Href, router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DocActionModal } from '@/components/DocActionModal';
 import { DocBadge } from '@/components/DocBadge';
 import { OnboardingModal } from '@/components/OnboardingModal';
 import { Colors } from '@/constants/theme';
@@ -43,12 +44,11 @@ export default function HomeScreen() {
     hasSeenOnboarding,
     setHasSeenOnboarding,
     addDocument,
-    deleteDocument,
-    duplicateDocument,
   } = useDocuments();
 
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [actionDoc, setActionDoc] = useState<DocumentItem | null>(null);
 
   const filteredDocs = useMemo(() => {
     return documents.filter((doc) => {
@@ -137,17 +137,7 @@ export default function HomeScreen() {
   };
 
   const handleDocMenu = (doc: DocumentItem) => {
-    Alert.alert(doc.title, 'Choose an action', [
-      { text: 'Edit & Sign', onPress: () => router.push(`/editor/${doc.id}` as Href) },
-      { text: 'Ask AI Summary', onPress: () => router.push(`/ai-chat?docId=${doc.id}`) },
-      { text: 'Duplicate', onPress: () => duplicateDocument(doc.id) },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteDocument(doc.id),
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setActionDoc(doc);
   };
 
   const quickTools = [
@@ -212,6 +202,7 @@ export default function HomeScreen() {
         visible={!hasSeenOnboarding}
         onDismiss={() => setHasSeenOnboarding(true)}
       />
+      <DocActionModal doc={actionDoc} onClose={() => setActionDoc(null)} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -224,12 +215,19 @@ export default function HomeScreen() {
             {/* Top Brand Row */}
             <View style={styles.topBar}>
               <View style={styles.brandRow}>
-                <View style={[styles.brandIcon, { backgroundColor: theme.navy }]}>
-                  <MaterialCommunityIcons name="file-document-edit" size={20} color="#FFFFFF" />
+                <Image
+                  source={require('@/assets/images/docusmart-logo.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
+                <View>
+                  <Text style={[styles.greetingTitle, { color: theme.text }]}>
+                    DocuSmart <Text style={styles.greetingSub}>AI</Text>
+                  </Text>
+                  <Text style={[styles.brandTagline, { color: theme.textSecondary }]}>
+                    Scan • Convert • Summarize • More
+                  </Text>
                 </View>
-                <Text style={[styles.greetingTitle, { color: theme.text }]}>
-                  CamDocs <Text style={styles.greetingSub}>WPS</Text>
-                </Text>
               </View>
 
               <View style={styles.topActions}>
@@ -463,13 +461,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
   },
-  brandIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoImage: {
+    width: 44,
+    height: 36,
+    borderRadius: 8,
   },
   greetingTitle: {
     fontSize: 19,
@@ -477,9 +474,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   greetingSub: {
-    fontSize: 13,
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  brandTagline: {
+    fontSize: 10,
     fontWeight: '600',
-    color: '#0EA5E9',
+    marginTop: 1,
   },
   greetingCaption: {
     fontSize: 12,
