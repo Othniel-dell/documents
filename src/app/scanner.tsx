@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { CameraView, useCameraPermissions, type FlashMode } from 'expo-camera';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { type Href, router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
@@ -44,15 +45,56 @@ export default function ScannerScreen() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<ScanFilter>('magic');
+  const [saveFormat, setSaveFormat] = useState<'pdf' | 'docx'>('pdf');
+  const [viewfinderSize, setViewfinderSize] = useState({ width: 300, height: 420 });
+
+  const cropToScanBox = async (uri: string, imgW: number, imgH: number): Promise<string> => {
+    try {
+      const viewRatio = viewfinderSize.width / Math.max(viewfinderSize.height, 1);
+      const imgRatio = imgW / Math.max(imgH, 1);
+
+      let visibleW = imgW;
+      let visibleH = imgH;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (imgRatio > viewRatio) {
+        visibleW = imgH * viewRatio;
+        offsetX = (imgW - visibleW) / 2;
+      } else {
+        visibleH = imgW / viewRatio;
+        offsetY = (imgH - visibleH) / 2;
+      }
+
+      // Match the 4-corner blue scan box (12%..88% X, 11%..89% Y)
+      const originX = Math.max(0, Math.round(offsetX + visibleW * 0.12));
+      const originY = Math.max(0, Math.round(offsetY + visibleH * 0.11));
+      const width = Math.max(1, Math.min(imgW - originX, Math.round(visibleW * 0.76)));
+      const height = Math.max(1, Math.min(imgH - originY, Math.round(visibleH * 0.78)));
+
+      const result = await manipulateAsync(
+        uri,
+        [{ crop: { originX, originY, width, height } }],
+        { compress: 0.9, format: SaveFormat.JPEG }
+      );
+      return result.uri;
+    } catch {
+      return uri;
+    }
+  };
 
   const handleCapture = async () => {
     if (isCapturing) return;
     setIsCapturing(true);
     try {
       if (cameraRef.current) {
-        const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
         if (photo?.uri) {
-          setCapturedUri(photo.uri);
+          const croppedUri =
+            photo.width && photo.height
+              ? await cropToScanBox(photo.uri, photo.width, photo.height)
+              : photo.uri;
+          setCapturedUri(croppedUri);
         }
       }
     } catch {
@@ -73,12 +115,14 @@ export default function ScannerScreen() {
     }
   };
 
-  const handleSaveScan = () => {
-    const title = `${mode.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const handleSaveScan = (formatOverride?: 'pdf' | 'docx') => {
+    const fmt = formatOverride ?? saveFormat;
+    const ext = fmt === 'docx' ? '.docx' : '.pdf';
+    const title = `${mode.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}${ext}`;
     const isSimulated = capturedUri === 'simulated-scan';
     const created = addDocument({
       title,
-      type: 'scan',
+      type: fmt,
       size: '384.0 KB',
       uri: isSimulated ? undefined : capturedUri ?? undefined,
       pages: [
@@ -108,7 +152,7 @@ export default function ScannerScreen() {
             <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
           </Pressable>
           <Text style={styles.topTitle}>Crop & Enhance ({mode})</Text>
-          <Pressable onPress={handleSaveScan} style={styles.savePill}>
+          <Pressable onPress={() => handleSaveScan()} style={styles.savePill}>
             <Text style={styles.savePillText}>Done</Text>
           </Pressable>
         </View>
@@ -153,13 +197,28 @@ export default function ScannerScreen() {
             })}
           </ScrollView>
 
+          <View style={styles.formatToggleRow}>
+            <Pressable
+              onPress={() => setSaveFormat('pdf')}
+              style={[styles.formatPill, saveFormat === 'pdf' && styles.formatPillPdf]}>
+              <Text style={styles.formatPillText}>Save as PDF</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSaveFormat('docx')}
+              style={[styles.formatPill, saveFormat === 'docx' && styles.formatPillWord]}>
+              <Text style={styles.formatPillText}>Save as Word</Text>
+            </Pressable>
+          </View>
+
           <View style={styles.reviewActions}>
             <Pressable onPress={() => setCapturedUri(null)} style={styles.retakeBtn}>
               <Text style={styles.retakeText}>Retake</Text>
             </Pressable>
-            <Pressable onPress={handleSaveScan} style={styles.useScanBtn}>
+            <Pressable onPress={() => handleSaveScan()} style={styles.useScanBtn}>
               <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-              <Text style={styles.useScanText}>Save & Edit</Text>
+              <Text style={styles.useScanText}>
+                Save {saveFormat === 'docx' ? 'Word' : 'PDF'} & Edit
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -187,7 +246,14 @@ export default function ScannerScreen() {
       </View>
 
       {/* Camera Viewfinder + 4-Corner Blue Edge Overlay (Image 1) */}
-      <View style={styles.viewfinder}>
+      <View
+        style={styles.viewfinder}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          if (width > 0 && height > 0) {
+            setViewfinderSize({ width, height });
+          }
+        }}>
         {permission?.granted ? (
           <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" flash={flash} />
         ) : (
@@ -210,7 +276,7 @@ export default function ScannerScreen() {
 
         {/* 4-Corner Blue Document Detection Overlay */}
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          <Svg width="100%" height="100%" viewBox="0 0 300 420">
+          <Svg width="100%" height="100%" viewBox="0 0 300 420" preserveAspectRatio="none">
             <Polygon
               points="36,46 264,46 264,374 36,374"
               fill="rgba(59, 130, 246, 0.08)"
@@ -517,6 +583,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     gap: 12,
+  },
+  formatToggleRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  formatPill: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+  },
+  formatPillPdf: {
+    backgroundColor: '#E53935',
+  },
+  formatPillWord: {
+    backgroundColor: '#2563EB',
+  },
+  formatPillText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   retakeBtn: {
     flex: 1,

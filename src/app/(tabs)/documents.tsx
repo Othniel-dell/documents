@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CreateDocModal } from '@/components/CreateDocModal';
 import { DocActionModal } from '@/components/DocActionModal';
 import { DocBadge } from '@/components/DocBadge';
 import { Colors } from '@/constants/theme';
@@ -38,6 +39,7 @@ export default function DocumentsScreen() {
   const [filter, setFilter] = useState<'all' | DocType>('all');
   const [signedOnly, setSignedOnly] = useState(false);
   const [actionDoc, setActionDoc] = useState<DocumentItem | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const filtered = useMemo(() => {
     return documents.filter((doc) => {
@@ -79,9 +81,39 @@ export default function DocumentsScreen() {
     setActionDoc(doc);
   };
 
+  const handleCreateDoc = (type: Exclude<DocType, 'scan'>, title: string) => {
+    const starterBody =
+      type === 'xlsx'
+        ? 'Item | Qty | Price | Total\n----------------------------\nItem 1 | 1 | $100 | $100\nItem 2 | 2 | $50 | $100'
+        : type === 'pptx'
+          ? 'Slide 1: Title Slide\n• Key Point 1\n• Key Point 2\n\nSlide 2: Overview\n• Add presentation notes here'
+          : 'Start typing or use Edit Tools below to format, annotate, and sign.';
+
+    const created = addDocument({
+      title,
+      type,
+      size: '14.0 KB',
+      pages: [
+        {
+          id: `p-${Date.now()}`,
+          contentTitle: title.replace(/\.[^.]+$/, ''),
+          contentBody: starterBody,
+        },
+      ],
+      annotations: [],
+    });
+    setCreateOpen(false);
+    router.push(`/editor/${created.id}` as Href);
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <DocActionModal doc={actionDoc} onClose={() => setActionDoc(null)} />
+      <CreateDocModal
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={handleCreateDoc}
+      />
       <LinearGradient
         colors={[theme.aquaTop, theme.aquaMid, theme.background]}
         locations={[0, 0.65, 1]}
@@ -89,12 +121,20 @@ export default function DocumentsScreen() {
         <SafeAreaView edges={['top']}>
           <View style={styles.titleRow}>
             <Text style={[styles.title, { color: theme.text }]}>All Documents</Text>
-            <Pressable
-              onPress={handleImport}
-              style={[styles.importBtn, { backgroundColor: theme.navy }]}>
-              <Ionicons name="add" size={18} color="#FFFFFF" />
-              <Text style={styles.importBtnText}>Import</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={() => setCreateOpen(true)}
+                style={[styles.importBtn, { backgroundColor: '#2563EB' }]}>
+                <Ionicons name="create-outline" size={16} color="#FFFFFF" />
+                <Text style={styles.importBtnText}>New</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleImport}
+                style={[styles.importBtn, { backgroundColor: theme.navy }]}>
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={styles.importBtnText}>Import</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View

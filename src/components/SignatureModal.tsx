@@ -28,22 +28,52 @@ export function SignatureModal({ visible, onClose, onConfirm }: SignatureModalPr
   const [currentPath, setCurrentPath] = useState<string>('');
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0]);
   const currentPathRef = useRef('');
+  const isDrawingRef = useRef(false);
+  const padRef = useRef<React.ComponentRef<typeof View>>(null);
+  const padOriginRef = useRef({ x: 0, y: 0 });
+
+  const getLocalCoords = (evt: GestureResponderEvent) => {
+    const ne = evt.nativeEvent as GestureResponderEvent['nativeEvent'] & {
+      offsetX?: number;
+      offsetY?: number;
+      clientX?: number;
+      clientY?: number;
+    };
+    if (typeof ne.locationX === 'number' && typeof ne.locationY === 'number') {
+      return { x: ne.locationX, y: ne.locationY };
+    }
+    if (typeof ne.offsetX === 'number' && typeof ne.offsetY === 'number') {
+      return { x: ne.offsetX, y: ne.offsetY };
+    }
+    const px = ne.pageX ?? ne.clientX ?? 0;
+    const py = ne.pageY ?? ne.clientY ?? 0;
+    return {
+      x: Math.max(0, px - padOriginRef.current.x),
+      y: Math.max(0, py - padOriginRef.current.y),
+    };
+  };
 
   const handleDrawStart = (evt: GestureResponderEvent) => {
-    const { locationX, locationY } = evt.nativeEvent;
-    const start = `M ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+    isDrawingRef.current = true;
+    padRef.current?.measureInWindow((x, y) => {
+      padOriginRef.current = { x, y };
+    });
+    const { x, y } = getLocalCoords(evt);
+    const start = `M ${x.toFixed(1)} ${y.toFixed(1)}`;
     currentPathRef.current = start;
     setCurrentPath(start);
   };
 
   const handleDrawMove = (evt: GestureResponderEvent) => {
-    const { locationX, locationY } = evt.nativeEvent;
-    const next = `${currentPathRef.current} L ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+    if (!isDrawingRef.current) return;
+    const { x, y } = getLocalCoords(evt);
+    const next = `${currentPathRef.current} L ${x.toFixed(1)} ${y.toFixed(1)}`;
     currentPathRef.current = next;
     setCurrentPath(next);
   };
 
   const handleDrawEnd = () => {
+    isDrawingRef.current = false;
     if (currentPathRef.current) {
       const finished = currentPathRef.current;
       setPaths((prev) => [...prev, finished]);
@@ -117,6 +147,7 @@ export function SignatureModal({ visible, onClose, onConfirm }: SignatureModalPr
         {/* Drawing Pad */}
         <View style={styles.padWrapper}>
           <View
+            ref={padRef}
             style={styles.pad}
             onStartShouldSetResponder={() => true}
             onMoveShouldSetResponder={() => true}

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CreateDocModal } from '@/components/CreateDocModal';
 import { DocActionModal } from '@/components/DocActionModal';
 import { DocBadge } from '@/components/DocBadge';
 import { OnboardingModal } from '@/components/OnboardingModal';
@@ -49,6 +50,7 @@ export default function HomeScreen() {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [actionDoc, setActionDoc] = useState<DocumentItem | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const filteredDocs = useMemo(() => {
     return documents.filter((doc) => {
@@ -119,21 +121,33 @@ export default function HomeScreen() {
     }
   };
 
-  const handleCreateBlankDoc = () => {
+  const handleCreateDoc = (type: Exclude<DocType, 'scan'>, title: string) => {
+    const starterBody =
+      type === 'xlsx'
+        ? 'Item | Qty | Price | Total\n----------------------------\nItem 1 | 1 | $100 | $100\nItem 2 | 2 | $50 | $100'
+        : type === 'pptx'
+          ? 'Slide 1: Title Slide\n• Key Point 1\n• Key Point 2\n\nSlide 2: Overview\n• Add presentation notes here'
+          : 'Start typing or use Edit Tools below to format, annotate, and sign.';
+
     const created = addDocument({
-      title: `Untitled_Doc_${documents.length + 1}.docx`,
-      type: 'docx',
-      size: '12.4 KB',
+      title,
+      type,
+      size: '14.0 KB',
       pages: [
         {
           id: `p-${Date.now()}`,
-          contentTitle: 'New Document',
-          contentBody: 'Start typing or use the Edit Tools below to annotate and sign.',
+          contentTitle: title.replace(/\.[^.]+$/, ''),
+          contentBody: starterBody,
         },
       ],
       annotations: [],
     });
+    setCreateOpen(false);
     router.push(`/editor/${created.id}` as Href);
+  };
+
+  const handleCreateBlankDoc = () => {
+    setCreateOpen(true);
   };
 
   const handleDocMenu = (doc: DocumentItem) => {
@@ -194,6 +208,11 @@ export default function HomeScreen() {
       icon: 'add-circle-outline' as const,
       onPress: handleCreateBlankDoc,
     },
+    {
+      label: 'CV Maker',
+      icon: 'briefcase-outline' as const,
+      onPress: () => router.push('/cv-maker' as Href),
+    },
   ];
 
   return (
@@ -203,6 +222,11 @@ export default function HomeScreen() {
         onDismiss={() => setHasSeenOnboarding(true)}
       />
       <DocActionModal doc={actionDoc} onClose={() => setActionDoc(null)} />
+      <CreateDocModal
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={handleCreateDoc}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}

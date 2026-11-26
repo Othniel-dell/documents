@@ -4,6 +4,8 @@ export type ScanFilter = 'original' | 'magic' | 'bw' | 'grayscale';
 
 export type ScanMode = 'Whiteboard' | 'Form' | 'Document' | 'Business Card' | 'ID Card';
 
+export type PageTemplate = 'classic' | 'executive' | 'modern' | 'legal' | 'warm' | 'invoice';
+
 export interface AnnotationItem {
   id: string;
   type: 'signature' | 'text' | 'draw' | 'image';
@@ -26,6 +28,11 @@ export interface DocumentPage {
   contentTitle?: string;
   contentBody?: string;
   filter?: ScanFilter;
+  template?: PageTemplate;
+  rotation?: number;
+  hideImage?: boolean;
+  textColor?: string;
+  textAlign?: 'left' | 'center' | 'right';
 }
 
 export interface DocumentItem {

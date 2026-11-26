@@ -36,6 +36,10 @@ function AppShell() {
           name="ai-chat"
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
         />
+        <Stack.Screen
+          name="cv-maker"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
     </ThemeProvider>
   );

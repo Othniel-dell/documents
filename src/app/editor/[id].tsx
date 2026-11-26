@@ -2,12 +2,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Print from 'expo-print';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   type GestureResponderEvent,
   Image,
   Keyboard,
@@ -24,11 +22,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { DocActionModal } from '@/components/DocActionModal';
+import { ExportModal } from '@/components/ExportModal';
+import { PAGE_TEMPLATES, RedesignModal } from '@/components/RedesignModal';
 import { SignatureModal } from '@/components/SignatureModal';
 import { Colors } from '@/constants/theme';
 import { useDocuments } from '@/context/DocumentContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import type { AnnotationItem } from '@/types/document';
+import type { AnnotationItem, DocumentPage } from '@/types/document';
 import { goBackOrHome } from '@/utils/navigation';
 
 let annIdSeq = 100;
@@ -57,9 +57,16 @@ export default function DocumentEditorScreen() {
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
   const [signatureModalOpen, setSignatureModalOpen] = useState(tool === 'sign');
   const [docActionsOpen, setDocActionsOpen] = useState(false);
+  const [redesignOpen, setRedesignOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [pdfReaderMode, setPdfReaderMode] = useState(Boolean(doc?.type === 'pdf' && doc?.uri));
   const [liveDrawPath, setLiveDrawPath] = useState('');
   const liveDrawRef = useRef('');
+  const isDrawingRef = useRef(false);
+  const paperRef = useRef<React.ComponentRef<typeof View>>(null);
+  const paperOriginRef = useRef({ x: 0, y: 0 });
   const bodyInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const textAnnRefs = useRef<Record<string, React.ComponentRef<typeof TextInput> | null>>({});
 
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
@@ -70,21 +77,48 @@ export default function DocumentEditorScreen() {
     };
   }, []);
 
+  const getPaperCoords = (evt: GestureResponderEvent) => {
+    const ne = evt.nativeEvent as GestureResponderEvent['nativeEvent'] & {
+      offsetX?: number;
+      offsetY?: number;
+      clientX?: number;
+      clientY?: number;
+    };
+    if (typeof ne.locationX === 'number' && typeof ne.locationY === 'number') {
+      return { x: ne.locationX, y: ne.locationY };
+    }
+    if (typeof ne.offsetX === 'number' && typeof ne.offsetY === 'number') {
+      return { x: ne.offsetX, y: ne.offsetY };
+    }
+    const px = ne.pageX ?? ne.clientX ?? 0;
+    const py = ne.pageY ?? ne.clientY ?? 0;
+    return {
+      x: Math.max(0, px - paperOriginRef.current.x),
+      y: Math.max(0, py - paperOriginRef.current.y),
+    };
+  };
+
   const handleDrawStart = (evt: GestureResponderEvent) => {
-    const { locationX, locationY } = evt.nativeEvent;
-    const p = `M ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+    isDrawingRef.current = true;
+    paperRef.current?.measureInWindow((x, y) => {
+      paperOriginRef.current = { x, y };
+    });
+    const { x, y } = getPaperCoords(evt);
+    const p = `M ${x.toFixed(1)} ${y.toFixed(1)}`;
     liveDrawRef.current = p;
     setLiveDrawPath(p);
   };
 
   const handleDrawMove = (evt: GestureResponderEvent) => {
-    const { locationX, locationY } = evt.nativeEvent;
-    const next = `${liveDrawRef.current} L ${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+    if (!isDrawingRef.current) return;
+    const { x, y } = getPaperCoords(evt);
+    const next = `${liveDrawRef.current} L ${x.toFixed(1)} ${y.toFixed(1)}`;
     liveDrawRef.current = next;
     setLiveDrawPath(next);
   };
 
   const handleDrawEnd = () => {
+    isDrawingRef.current = false;
     if (liveDrawRef.current && doc) {
       const ann: AnnotationItem = {
         id: nextAnnId(),
@@ -112,6 +146,26 @@ export default function DocumentEditorScreen() {
   }
 
   const primaryPage = doc.pages[0];
+  const activeTemplate =
+    PAGE_TEMPLATES.find((t) => t.key === (primaryPage?.template ?? 'classic')) ??
+    PAGE_TEMPLATES[0];
+
+  const handleUpdatePage = (patch: Partial<DocumentPage>) => {
+    updateDocument(doc.id, {
+      pages: [{ ...primaryPage, id: primaryPage?.id ?? 'p-1', ...patch }],
+    });
+  };
+
+  const handleConvertScanToEditable = () => {
+    handleUpdatePage({
+      hideImage: true,
+      template: 'executive',
+      contentTitle: primaryPage?.contentTitle || doc.title.replace(/\.[^.]+$/, ''),
+      contentBody:
+        primaryPage?.contentBody ||
+        '1. Document Summary\nEdit this section with your scanned text.\n\n2. Key Details\n• Item 1:\n• Item 2:\n\n3. Approval & Signature',
+    });
+  };
 
   const handleAddTextNote = () => {
     const newAnn: AnnotationItem = {
@@ -119,13 +173,16 @@ export default function DocumentEditorScreen() {
       type: 'text',
       x: 28,
       y: 120 + (doc.annotations.length * 26) % 180,
-      text: 'Approved & Reviewed',
+      text: 'Type note...',
       fontSize: 14,
       bold: true,
       color: '#16325B',
     };
     addAnnotation(doc.id, newAnn);
     setSelectedAnnId(newAnn.id);
+    setTimeout(() => {
+      textAnnRefs.current[newAnn.id]?.focus();
+    }, 50);
   };
 
   const handleInsertImage = async () => {
@@ -169,30 +226,8 @@ export default function DocumentEditorScreen() {
     if (selectedAnnId === last.id) setSelectedAnnId(null);
   };
 
-  const handleExportPdf = async () => {
-    try {
-      const html = `
-        <html>
-          <body style="font-family: sans-serif; padding: 32px; color: #111827;">
-            <h1 style="color: #16325B;">${primaryPage?.contentTitle ?? doc.title}</h1>
-            <pre style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.6;">${primaryPage?.contentBody ?? ''}</pre>
-            ${
-              doc.isSigned
-                ? '<p style="margin-top: 32px; color: #16A34A; font-weight: bold;">✓ Digitally Signed via CamDocs WPS</p>'
-                : ''
-            }
-          </body>
-        </html>
-      `;
-      const { uri } = await Print.printToFileAsync({ html });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf' });
-      } else {
-        Alert.alert('PDF Exported', `Saved to ${uri}`);
-      }
-    } catch {
-      Alert.alert('Export', 'PDF export is ready on iOS/Android devices.');
-    }
+  const handleExportPdf = () => {
+    setExportOpen(true);
   };
 
   const handleMore = () => {
@@ -211,6 +246,19 @@ export default function DocumentEditorScreen() {
         visible={signatureModalOpen}
         onClose={() => setSignatureModalOpen(false)}
         onConfirm={handleConfirmSignature}
+      />
+      <RedesignModal
+        visible={redesignOpen}
+        page={primaryPage}
+        onClose={() => setRedesignOpen(false)}
+        onUpdatePage={handleUpdatePage}
+        onConvertToEditable={handleConvertScanToEditable}
+      />
+      <ExportModal
+        visible={exportOpen}
+        doc={doc}
+        onClose={() => setExportOpen(false)}
+        onChangeDocType={(type, newTitle) => updateDocument(doc.id, { type, title: newTitle })}
       />
 
       {/* Top Gradient Header (Image 4 Right Screen) */}
@@ -250,21 +298,101 @@ export default function DocumentEditorScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {doc.type === 'pdf' && doc.uri && (
+        <View style={styles.readerToggleRow}>
+          <Pressable
+            onPress={() => setPdfReaderMode(true)}
+            style={[
+              styles.readerToggleBtn,
+              pdfReaderMode && { backgroundColor: theme.navy },
+            ]}>
+            <Text
+              style={[
+                styles.readerToggleText,
+                { color: pdfReaderMode ? '#FFFFFF' : theme.textSecondary },
+              ]}>
+              PDF Reader
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setPdfReaderMode(false)}
+            style={[
+              styles.readerToggleBtn,
+              !pdfReaderMode && { backgroundColor: theme.navy },
+            ]}>
+            <Text
+              style={[
+                styles.readerToggleText,
+                { color: !pdfReaderMode ? '#FFFFFF' : theme.textSecondary },
+              ]}>
+              Edit & Sign
+            </Text>
+          </Pressable>
+        </View>
+      )}
       <ScrollView
         contentContainerStyle={styles.canvasScroll}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
+        {pdfReaderMode && doc.type === 'pdf' && doc.uri ? (
+          <View style={styles.pdfReaderCard}>
+            {Platform.OS === 'web' ? (
+              React.createElement('iframe', {
+                src: doc.uri,
+                title: doc.title,
+                style: {
+                  width: '100%',
+                  height: 520,
+                  border: 'none',
+                  borderRadius: 12,
+                },
+              })
+            ) : (
+              <View style={styles.nativePdfBox}>
+                <Ionicons name="document-text" size={54} color="#E53935" />
+                <Text style={styles.nativePdfTitle}>{doc.title}</Text>
+                <Text style={styles.nativePdfSub}>
+                  Tap below to read this PDF in your device&apos;s native viewer, or switch to Edit & Sign above.
+                </Text>
+                <Pressable
+                  onPress={() => Sharing.shareAsync(doc.uri!)}
+                  style={styles.nativePdfBtn}>
+                  <Ionicons name="eye-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.nativePdfBtnText}>Open PDF Reader</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        ) : (
         <View
-          style={styles.paperCard}
-          onStartShouldSetResponder={() => drawMode}
-          onMoveShouldSetResponder={() => drawMode}
-          onResponderGrant={handleDrawStart}
-          onResponderMove={handleDrawMove}
-          onResponderRelease={handleDrawEnd}>
-          {primaryPage?.imageUri && (
+          ref={paperRef}
+          style={[
+            styles.paperCard,
+            {
+              backgroundColor: activeTemplate.paperBg,
+              borderColor: activeTemplate.borderColor,
+              borderWidth: 1,
+            },
+          ]}>
+          {activeTemplate.key !== 'classic' && (
+            <View
+              style={[
+                styles.templateTopStripe,
+                { backgroundColor: activeTemplate.accent },
+              ]}
+            />
+          )}
+          {primaryPage?.imageUri && !primaryPage?.hideImage && (
             <Image
               source={{ uri: primaryPage.imageUri }}
-              style={styles.scannedPhoto}
+              style={[
+                styles.scannedPhoto,
+                primaryPage?.rotation
+                  ? { transform: [{ rotate: `${primaryPage.rotation}deg` }] }
+                  : undefined,
+                primaryPage?.filter === 'grayscale' && { opacity: 0.85 },
+                primaryPage?.filter === 'bw' && { opacity: 0.78 },
+              ]}
               resizeMode="contain"
             />
           )}
@@ -278,7 +406,13 @@ export default function DocumentEditorScreen() {
                   pages: [{ ...primaryPage, contentTitle: val }],
                 })
               }
-              style={styles.paperTitleInput}
+              style={[
+                styles.paperTitleInput,
+                {
+                  color: activeTemplate.titleColor,
+                  textAlign: primaryPage?.textAlign ?? 'left',
+                },
+              ]}
               placeholder="Document Title"
               placeholderTextColor="#94A3B8"
             />
@@ -297,6 +431,8 @@ export default function DocumentEditorScreen() {
               style={[
                 styles.paperBodyInput,
                 {
+                  color: primaryPage?.textColor ?? '#334155',
+                  textAlign: primaryPage?.textAlign ?? 'left',
                   fontSize,
                   fontWeight: bold ? '700' : '400',
                   textDecorationLine: underline ? 'underline' : 'none',
@@ -304,6 +440,18 @@ export default function DocumentEditorScreen() {
               ]}
             />
           </View>
+
+          {/* Dedicated Drawing Touch/Mouse Overlay when Draw Mode is active */}
+          {drawMode && (
+            <View
+              style={StyleSheet.absoluteFill}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={handleDrawStart}
+              onResponderMove={handleDrawMove}
+              onResponderRelease={handleDrawEnd}
+            />
+          )}
 
           {/* Freehand Drawing Overlay */}
           <Svg pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -349,14 +497,26 @@ export default function DocumentEditorScreen() {
                     selected && styles.annotationSelected,
                   ]}>
                   {ann.type === 'text' && (
-                    <Text
+                    <TextInput
+                      ref={(el) => {
+                        textAnnRefs.current[ann.id] = el;
+                      }}
+                      value={ann.text ?? ''}
+                      onChangeText={(val) => updateAnnotation(doc.id, ann.id, { text: val })}
+                      onFocus={() => setSelectedAnnId(ann.id)}
+                      editable={!drawMode}
+                      multiline
+                      selectTextOnFocus
+                      placeholder="Type note..."
+                      placeholderTextColor="#94A3B8"
                       style={{
                         color: ann.color ?? '#16325B',
                         fontSize: ann.fontSize ?? 14,
                         fontWeight: ann.bold ? '700' : '500',
-                      }}>
-                      {ann.text}
-                    </Text>
+                        minWidth: 110,
+                        padding: 0,
+                      }}
+                    />
                   )}
                   {ann.type === 'signature' && (
                     <Svg width={150} height={54} viewBox="0 0 180 65">
@@ -390,9 +550,7 @@ export default function DocumentEditorScreen() {
                 onPress={() => {
                   const target = doc.annotations.find((a) => a.id === selectedAnnId);
                   if (target?.type === 'text') {
-                    updateAnnotation(doc.id, target.id, {
-                      text: target.text === 'Approved & Reviewed' ? 'Verified ✓' : 'Approved & Reviewed',
-                    });
+                    textAnnRefs.current[target.id]?.focus();
                   } else {
                     setSignatureModalOpen(true);
                   }
@@ -431,6 +589,7 @@ export default function DocumentEditorScreen() {
             </View>
           )}
         </View>
+        )}
       </ScrollView>
 
       {/* Bottom Edit Tools & Formatting Toolbar (Image 4 Right Screen) */}
@@ -452,14 +611,21 @@ export default function DocumentEditorScreen() {
 
         <View style={styles.toolsRow}>
           <Pressable
-            onPress={() => setSignatureModalOpen(true)}
+            onPress={() => {
+              setPdfReaderMode(false);
+              setDrawMode(false);
+              setSignatureModalOpen(true);
+            }}
             style={[styles.toolBtn, { backgroundColor: theme.backgroundSelected }]}>
             <MaterialCommunityIcons name="draw-pen" size={20} color={theme.navy} />
             <Text style={[styles.toolBtnLabel, { color: theme.text }]}>Sign</Text>
           </Pressable>
 
           <Pressable
-            onPress={() => setDrawMode((v) => !v)}
+            onPress={() => {
+              setPdfReaderMode(false);
+              setDrawMode((v) => !v);
+            }}
             style={[
               styles.toolBtn,
               { backgroundColor: drawMode ? theme.navy : theme.backgroundSelected },
@@ -475,21 +641,43 @@ export default function DocumentEditorScreen() {
           </Pressable>
 
           <Pressable
-            onPress={handleAddTextNote}
+            onPress={() => {
+              setPdfReaderMode(false);
+              setDrawMode(false);
+              handleAddTextNote();
+            }}
             style={[styles.toolBtn, { backgroundColor: theme.backgroundSelected }]}>
             <Text style={[styles.toolGlyph, { color: theme.navy }]}>T</Text>
             <Text style={[styles.toolBtnLabel, { color: theme.text }]}>Text</Text>
           </Pressable>
 
           <Pressable
-            onPress={handleInsertImage}
+            onPress={() => {
+              setPdfReaderMode(false);
+              setDrawMode(false);
+              handleInsertImage();
+            }}
             style={[styles.toolBtn, { backgroundColor: theme.backgroundSelected }]}>
             <Ionicons name="image-outline" size={19} color={theme.navy} />
             <Text style={[styles.toolBtnLabel, { color: theme.text }]}>Image</Text>
           </Pressable>
 
           <Pressable
-            onPress={handleUndo}
+            onPress={() => {
+              setPdfReaderMode(false);
+              setDrawMode(false);
+              setRedesignOpen(true);
+            }}
+            style={[styles.toolBtn, { backgroundColor: theme.backgroundSelected }]}>
+            <Ionicons name="color-palette-outline" size={19} color={theme.navy} />
+            <Text style={[styles.toolBtnLabel, { color: theme.text }]}>Redesign</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              setPdfReaderMode(false);
+              handleUndo();
+            }}
             style={[styles.toolBtn, { backgroundColor: theme.backgroundSelected }]}>
             <Ionicons name="arrow-undo" size={19} color={theme.navy} />
             <Text style={[styles.toolBtnLabel, { color: theme.text }]}>Undo</Text>
@@ -634,6 +822,13 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
+  templateTopStripe: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 8,
+  },
   scannedPhoto: {
     width: '100%',
     height: 240,
@@ -756,4 +951,52 @@ const styles = StyleSheet.create({
   },
   formatGlyph: { fontSize: 15, fontWeight: '700' },
   formatLabel: { fontSize: 10, fontWeight: '500' },
+  readerToggleRow: {
+    flexDirection: 'row',
+    marginHorizontal: 14,
+    marginBottom: 4,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(148, 163, 184, 0.16)',
+    gap: 6,
+  },
+  readerToggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  readerToggleText: { fontSize: 13, fontWeight: '700' },
+  pdfReaderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 10,
+    minHeight: 460,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  nativePdfBox: {
+    flex: 1,
+    minHeight: 380,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    gap: 12,
+  },
+  nativePdfTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A', textAlign: 'center' },
+  nativePdfSub: { fontSize: 13.5, color: '#64748B', textAlign: 'center', lineHeight: 20 },
+  nativePdfBtn: {
+    marginTop: 6,
+    backgroundColor: '#16325B',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nativePdfBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
 });
